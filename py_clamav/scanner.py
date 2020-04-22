@@ -1,19 +1,19 @@
 """
-LibClamv ctypes binding
+LibClamAV ctypes binding
 """
-import os
-import sys
-from time import sleep
+
 from enum import Enum
+from pathlib import Path
 from ctypes import c_int, c_uint, cdll, c_void_p, c_char_p, byref, Structure, POINTER, c_ulong, create_string_buffer
 from ctypes.util import find_library
-from typing import NewType, Optional
+from typing import NewType, Optional, Union
 
 cl_engine_p = NewType('cl_engine_p', c_void_p)
 c_int_p = POINTER(c_int)
 c_uint_p = POINTER(c_uint)
 c_ulong_p = POINTER(c_ulong)
 c_char_pp = POINTER(c_char_p)
+
 
 class cl_scan_options(Structure):
     _fields_ = [
@@ -74,18 +74,21 @@ class Scanner:
         self._signo = c_uint(0)
 
         self._lib = find_library('clamav') or find_library('libclamav') or 'libclamav'
-        print(self._lib)
+
         self._libclamav = cdll[self._lib]
 
         ret = ClamavStatuses(self._libclamav.cl_init(0))
         if ret != ClamavStatuses.CL_SUCCESS:
-            raise RuntimeError(f'Error cl_init(): {ret}')
+            raise RuntimeError(self._error('cl_init', ret))
 
         self._libclamav.cl_engine_new.argtypes = None
         self._libclamav.cl_engine_new.restype = cl_engine_p
         self._engine = self._libclamav.cl_engine_new()
         if not self._engine:
-            raise RuntimeError(f'Error cl_engine_new()')
+            raise RuntimeError(self._error('cl_engine_new', ret))
+
+        self._libclamav.cl_strerror.argtypes = (c_int,)
+        self._libclamav.cl_strerror.restype = c_char_p
 
     def load(self):
         self._libclamav.cl_retdbdir.argtypes = None
@@ -94,14 +97,18 @@ class Scanner:
 
         ret = ClamavStatuses(self._libclamav.cl_load(self._lib_path, self._engine, byref(self._signo), c_uint(0)))
         if ret != ClamavStatuses.CL_SUCCESS:
-            raise RuntimeError(f'Error cl_load(): {ret} / {self._signo} / {self._lib_path}')
+            raise RuntimeError(self._error('cl_load', ret))
 
         ret = ClamavStatuses(self._libclamav.cl_engine_compile(self._engine))
         if ret != ClamavStatuses.CL_SUCCESS:
-            raise RuntimeError(f'Error cl_engine_compile(): {ret}')
+            raise RuntimeError(self._error('cl_engine_compile', ret))
 
-        # self._libclamav.cl_scanfile.argtypes = (c_char_p, c_char_pp, c_ulong_p, cl_engine_p, c_uint)
-        # self._libclamav.cl_scanfile.argtypes = (c_char_p, c_char_pp, c_ulong_p, cl_engine_p, cl_scan_options_p)
+    def __enter__(self):
+        self.load()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.free()
 
     def free(self):
         if self._lib_path:
@@ -110,59 +117,50 @@ class Scanner:
         if self._engine:
             ret = ClamavStatuses(self._libclamav.cl_engine_free(self._engine))
             if ret != ClamavStatuses.CL_SUCCESS:
-                raise RuntimeError(f'Error cl_engine_free(): {ret}')
+                raise RuntimeError(self._error('cl_engine_free', ret))
 
-    def scan_file(self, file_name: str):
-        """if not self.engine:
-            raise ClamavException('No database loaded')"""
+    def scan_file(self, file_path: Union[str, Path]):
+        if not self._engine:
+            raise RuntimeError('No lib loaded')
+
         virname = c_char_p()
         scan_options = cl_scan_options()
 
         ret = ClamavStatuses(
-            self._libclamav.cl_scanfile(create_string_buffer(file_name.encode('utf-8')),
-                                        byref(virname),
-                                        None,
-                                        self._engine,
-                                        byref(scan_options)))
+            self._libclamav.cl_scanfile(
+                create_string_buffer((file_path if isinstance(file_path, str) else str(file_path)).encode('utf-8')),
+                byref(virname),
+                None,
+                self._engine,
+                byref(scan_options)))
         if ret not in (ClamavStatuses.CL_SUCCESS, ClamavStatuses.CL_VIRUS):
-            raise RuntimeError(f'Error cl_scanfile(): {ret}')
+            raise RuntimeError(self._error('cl_scanfile', ret))
 
         return ret == ClamavStatuses.CL_VIRUS, virname.value.decode('utf-8') if virname.value else None
 
-    def scan_fileno(self,
-                  fileno: int,
-                  file_name: Optional[str] = None):
-        """if not self.engine:
-            raise ClamavException('No database loaded')"""
+    def scan_fileno(self, fileno: int, file_path: Optional[Union[str, Path]] = None):
+        if not self._engine:
+            raise RuntimeError('No lib loaded')
         virname = c_char_p()
         scan_options = cl_scan_options()
 
         ret = ClamavStatuses(
             self._libclamav.cl_scandesc(c_int(fileno),
-                                        create_string_buffer(file_name.encode('utf-8')) if file_name else None,
+                                        create_string_buffer(((file_path if isinstance(file_path, str) else str(
+                                            file_path)).encode('utf-8'))) if file_path else None,
                                         byref(virname),
                                         None,
                                         self._engine,
-                                        byref(scan_options)))
+                                        byref(scan_options))
+        )
         if ret not in (ClamavStatuses.CL_SUCCESS, ClamavStatuses.CL_VIRUS):
-            raise RuntimeError(f'Error cl_scanfile(): {ret}')
+            raise RuntimeError(self._error('cl_scandesc', ret))
 
         return ret == ClamavStatuses.CL_VIRUS, virname.value.decode('utf-8') if virname.value else None
 
     def __del__(self):
         self.free()
 
-
-if __name__ == '__main__':
-    scanner = Scanner()
-    scanner.load()
-    print(scanner.scan_file('./eicar.com'))
-    with open('./eicar.com', 'rb') as file:
-        fileno = os.memfd_create('test')
-        os.write(fileno, file.read())
-        print(fileno)
-        os.lseek(fileno, 0, 0)
-        print(os.getpid())
-        print(scanner.scan_fileno(fileno))
-        os.close(fileno)
-    scanner.free()
+    def _error(self, func_name, ret_code: ClamavStatuses):
+        err = self._libclamav.cl_strerror(ret_code.value)
+        return f'Error {func_name}(): {err.decode("utf-8") if err else None} / {ret_code}'
