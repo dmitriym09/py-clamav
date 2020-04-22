@@ -69,8 +69,11 @@ class Scanner:
     _lib_path: Optional[c_char_p]
     _signo: c_uint
 
-    def __init__(self):
+    def __init__(self, lib_path: Optional[str] = None):
         self._lib_path = None
+        if lib_path:
+            self._lib_path = create_string_buffer(lib_path.encode('utf-8'))
+
         self._signo = c_uint(0)
 
         self._lib = find_library('clamav') or find_library('libclamav') or 'libclamav'
@@ -93,7 +96,9 @@ class Scanner:
     def load(self):
         self._libclamav.cl_retdbdir.argtypes = None
         self._libclamav.cl_retdbdir.restype = c_char_p
-        self._lib_path: c_char_p = self._libclamav.cl_retdbdir()
+
+        if not self._lib_path:
+            self._lib_path: c_char_p = self._libclamav.cl_retdbdir()
 
         ret = ClamavStatuses(self._libclamav.cl_load(self._lib_path, self._engine, byref(self._signo), c_uint(0)))
         if ret != ClamavStatuses.CL_SUCCESS:
