@@ -39,6 +39,11 @@ class Test(TestCase):
 
     def test(self):
         with ClamAvScanner() as scanner:
+            major, minor, build = scanner.ver
+            self.assertGreaterEqual(major, 0)
+            self.assertGreaterEqual(minor, 0)
+            self.assertGreaterEqual(build, 0)
+
             infected, virname = scanner.scan_file(self._good_path)
             self.assertFalse(infected)
             self.assertIsNone(virname)

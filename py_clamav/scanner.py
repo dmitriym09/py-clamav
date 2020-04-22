@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from ctypes import c_int, c_uint, cdll, c_void_p, c_char_p, byref, Structure, POINTER, c_ulong, create_string_buffer
 from ctypes.util import find_library
-from typing import NewType, Optional, Union
+from typing import NewType, Optional, Union, Tuple
 
 cl_engine_p = NewType('cl_engine_p', c_void_p)
 c_int_p = POINTER(c_int)
@@ -93,6 +93,9 @@ class Scanner:
         self._libclamav.cl_strerror.argtypes = (c_int,)
         self._libclamav.cl_strerror.restype = c_char_p
 
+        self._libclamav.cl_retver.argtypes = None
+        self._libclamav.cl_retver.restype = c_char_p
+
     def load(self):
         self._libclamav.cl_retdbdir.argtypes = None
         self._libclamav.cl_retdbdir.restype = c_char_p
@@ -169,3 +172,8 @@ class Scanner:
     def _error(self, func_name, ret_code: ClamavStatuses):
         err = self._libclamav.cl_strerror(ret_code.value)
         return f'Error {func_name}(): {err.decode("utf-8") if err else None} / {ret_code}'
+
+    @property
+    def ver(self) -> Tuple[int, int, int]:
+        major, minor, build = self._libclamav.cl_retver().decode('ascii').split('.')
+        return int(major), int(minor), int(build)
