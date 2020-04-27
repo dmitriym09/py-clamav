@@ -2,7 +2,12 @@
 
 LibClamAV ctypes binding
 
-### using
+## Install
+
+- install or [download](https://www.clamav.net/downloads) libclamv
+- `pip install py-clamav`
+
+## Using
 
 ```python
 import os
