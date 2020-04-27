@@ -8,14 +8,17 @@ from ctypes import c_int, c_uint, cdll, c_void_p, c_char_p, byref, Structure, PO
 from ctypes.util import find_library
 from typing import NewType, Optional, Union, Tuple
 
-cl_engine_p = NewType('cl_engine_p', c_void_p)
+ClEngineP = NewType('ClEngineP', c_void_p)
 c_int_p = POINTER(c_int)
 c_uint_p = POINTER(c_uint)
 c_ulong_p = POINTER(c_ulong)
 c_char_pp = POINTER(c_char_p)
 
 
-class cl_scan_options(Structure):
+class ClScanOptions(Structure):  # pylint: disable=too-few-public-methods
+    """
+    cl_scan_options structure
+    """
     _fields_ = [
         ('general', c_uint),
         ('parse', c_uint),
@@ -25,10 +28,13 @@ class cl_scan_options(Structure):
     ]
 
 
-cl_scan_options_p = POINTER(cl_scan_options)
+ClScanOptionsP = POINTER(ClScanOptions)
 
 
 class ClamavStatuses(Enum):
+    """
+    ClamAV results
+    """
     CL_SUCCESS = 0
     CL_VIRUS = 1
     CL_ENULLARG = 2
@@ -66,6 +72,9 @@ class ClamavStatuses(Enum):
 
 
 class Scanner:
+    """
+    LibClamAV file scanner
+    """
     _lib_path: Optional[c_char_p]
     _signo: c_uint
 
@@ -85,7 +94,7 @@ class Scanner:
             raise RuntimeError(self._error('cl_init', ret))
 
         self._libclamav.cl_engine_new.argtypes = None
-        self._libclamav.cl_engine_new.restype = cl_engine_p
+        self._libclamav.cl_engine_new.restype = ClEngineP
         self._engine = self._libclamav.cl_engine_new()
         if not self._engine:
             raise RuntimeError(self._error('cl_engine_new', ret))
@@ -97,6 +106,9 @@ class Scanner:
         self._libclamav.cl_retver.restype = c_char_p
 
     def load(self):
+        """
+        Load clamav bases
+        """
         self._libclamav.cl_retdbdir.argtypes = None
         self._libclamav.cl_retdbdir.restype = c_char_p
 
@@ -119,6 +131,9 @@ class Scanner:
         self.free()
 
     def free(self):
+        """
+        Free clamav engine
+        """
         if self._lib_path:
             del self._lib_path
             self._lib_path = None
@@ -128,11 +143,14 @@ class Scanner:
                 raise RuntimeError(self._error('cl_engine_free', ret))
 
     def scan_file(self, file_path: Union[str, Path]):
+        """
+        Scan file by path
+        """
         if not self._engine:
             raise RuntimeError('No lib loaded')
 
         virname = c_char_p()
-        scan_options = cl_scan_options()
+        scan_options = ClScanOptions()
 
         ret = ClamavStatuses(
             self._libclamav.cl_scanfile(
@@ -147,10 +165,13 @@ class Scanner:
         return ret == ClamavStatuses.CL_VIRUS, virname.value.decode('utf-8') if virname.value else None
 
     def scan_fileno(self, fileno: int, file_path: Optional[Union[str, Path]] = None):
+        """
+        Scan file by fileno
+        """
         if not self._engine:
             raise RuntimeError('No lib loaded')
         virname = c_char_p()
-        scan_options = cl_scan_options()
+        scan_options = ClScanOptions()
 
         ret = ClamavStatuses(
             self._libclamav.cl_scandesc(c_int(fileno),
@@ -175,5 +196,8 @@ class Scanner:
 
     @property
     def ver(self) -> Tuple[int, int, int]:
+        """
+        Clamav bases version
+        """
         major, minor, build = self._libclamav.cl_retver().decode('ascii').split('.')
         return int(major), int(minor), int(build)

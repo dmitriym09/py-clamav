@@ -13,6 +13,10 @@ EICAR_DASE64 = b'WDVPIVAlQEFQWzRcUFpYNTQoUF4pN0NDKTd9JEVJQ0FSLVNUQU5EQVJELUFOVEl
 
 
 class Test(TestCase):
+    """
+    Unit tests
+    """
+
     def setUp(self) -> None:
         self._eicar_data = decodebytes(EICAR_DASE64)
 
@@ -38,6 +42,9 @@ class Test(TestCase):
         os.close(self._eicar_fileno)
 
     def test(self):
+        """
+        Scan test files
+        """
         with ClamAvScanner() as scanner:
             major, minor, build = scanner.ver
             self.assertGreaterEqual(major, 0)
