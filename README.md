@@ -2,6 +2,14 @@
 
 LibClamAV ctypes binding
 
+## Docker
+
+Check file by [docker container](https://hub.docker.com/r/dmitriym09/py-clamav)
+
+```bash
+docker run --rm -it -v{path_to_file}:{path_to_file} dmitriym09/py-clamav python -m py_clamav {path_to_file}
+```
+
 ## Install
 
 - install or [download](https://www.clamav.net/downloads) libclamv
