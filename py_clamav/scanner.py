@@ -8,7 +8,7 @@ from ctypes import c_int, c_uint, cdll, c_void_p, c_char_p, byref, Structure, PO
 from ctypes.util import find_library
 from typing import NewType, Optional, Union, Tuple
 
-ClEngineP = NewType('ClEngineP', c_void_p)
+ClEngineP = c_void_p
 c_int_p = POINTER(c_int)
 c_uint_p = POINTER(c_uint)
 c_ulong_p = POINTER(c_ulong)
@@ -75,21 +75,25 @@ class Scanner:
     """
     LibClamAV file scanner
     """
-    _lib_path: Optional[c_char_p]
+    _base_path: Optional[c_char_p]
     _signo: c_uint
+    _engine: Optional[ClEngineP]
 
-    def __init__(self, lib_path: Optional[str] = None):
-        self._lib_path = None
-        if lib_path:
-            self._lib_path = create_string_buffer(lib_path.encode('utf-8'))
+    def __init__(self, base_path: Optional[str] = None):
+        self._base_path = None
+        self._engine = None
+        if base_path:
+            self._base_path = create_string_buffer(base_path.encode('utf-8'))
 
         self._signo = c_uint(0)
 
-        self._lib = find_library('clamav') or find_library('libclamav') or 'libclamav'
+        self._lib = find_library('clamav')
+        if not self._lib:
+            raise FileNotFoundError('Not found libclamav')
 
         self._libclamav = cdll[self._lib]
 
-        ret = ClamavStatuses(self._libclamav.cl_init(0))
+        ret = ClamavStatuses(self._libclamav.cl_init())
         if ret != ClamavStatuses.CL_SUCCESS:
             raise RuntimeError(self._error('cl_init', ret))
 
@@ -105,6 +109,24 @@ class Scanner:
         self._libclamav.cl_retver.argtypes = None
         self._libclamav.cl_retver.restype = c_char_p
 
+        self._libclamav.cl_load.argtypes = (c_char_p, ClEngineP, c_uint_p, c_uint)
+        self._libclamav.cl_load.restype = c_int
+
+        self._libclamav.cl_engine_compile.argtypes = (ClEngineP,)
+        self._libclamav.cl_engine_compile.restype = c_int
+
+        self._libclamav.cl_scanfile.argtypes = (c_char_p, c_char_pp, c_ulong_p, ClEngineP, ClScanOptionsP)
+        self._libclamav.cl_scanfile.restype = c_int
+
+        self._libclamav.cl_scandesc.argtypes = (c_int, c_char_p, c_char_pp, c_ulong_p, ClEngineP, ClScanOptionsP)
+        self._libclamav.cl_scandesc.restype = c_int
+
+        self._libclamav.cl_engine_free.argtypes = (ClEngineP,)
+        self._libclamav.cl_engine_free.restype = c_int
+
+        self._libclamav.cl_strerror.argtypes = (c_int,)
+        self._libclamav.cl_strerror.restype = c_char_p
+
     def load(self):
         """
         Load clamav bases
@@ -112,10 +134,11 @@ class Scanner:
         self._libclamav.cl_retdbdir.argtypes = None
         self._libclamav.cl_retdbdir.restype = c_char_p
 
-        if not self._lib_path:
-            self._lib_path: c_char_p = self._libclamav.cl_retdbdir()
+        if not self._base_path:
+            self._base_path: c_char_p = self._libclamav.cl_retdbdir()
 
-        ret = ClamavStatuses(self._libclamav.cl_load(self._lib_path, self._engine, byref(self._signo), c_uint(0)))
+        ret = ClamavStatuses(
+            self._libclamav.cl_load(create_string_buffer(self._base_path), self._engine, byref(self._signo), c_uint(0)))
         if ret != ClamavStatuses.CL_SUCCESS:
             raise RuntimeError(self._error('cl_load', ret))
 
@@ -134,9 +157,10 @@ class Scanner:
         """
         Free clamav engine
         """
-        if self._lib_path:
-            del self._lib_path
-            self._lib_path = None
+        if self._base_path:
+            del self._base_path
+            self._base_path = None
+
         if self._engine:
             ret = ClamavStatuses(self._libclamav.cl_engine_free(self._engine))
             if ret != ClamavStatuses.CL_SUCCESS:
@@ -159,6 +183,7 @@ class Scanner:
                 None,
                 self._engine,
                 byref(scan_options)))
+
         if ret not in (ClamavStatuses.CL_SUCCESS, ClamavStatuses.CL_VIRUS):
             raise RuntimeError(self._error('cl_scanfile', ret))
 
@@ -186,9 +211,6 @@ class Scanner:
             raise RuntimeError(self._error('cl_scandesc', ret))
 
         return ret == ClamavStatuses.CL_VIRUS, virname.value.decode('utf-8') if virname.value else None
-
-    def __del__(self):
-        self.free()
 
     def _error(self, func_name, ret_code: ClamavStatuses):
         err = self._libclamav.cl_strerror(ret_code.value)

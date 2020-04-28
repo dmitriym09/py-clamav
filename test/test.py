@@ -51,6 +51,8 @@ class Test(TestCase):
             self.assertGreaterEqual(minor, 0)
             self.assertGreaterEqual(build, 0)
 
+            print(f'{major}.{minor}.{build}')
+
             infected, virname = scanner.scan_file(self._good_path)
             self.assertFalse(infected)
             self.assertIsNone(virname)
