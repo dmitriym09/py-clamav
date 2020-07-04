@@ -98,7 +98,7 @@ class Scanner:
         self._base_path = None
         self._engine = None
         if base_path:
-            self._base_path = create_string_buffer(base_path.encode('utf-8'))
+            self._base_path = base_path.encode('utf-8')
 
         self._signo = c_uint(0)
 
